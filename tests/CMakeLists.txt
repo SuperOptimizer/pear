@@ -11,7 +11,7 @@ set(RISCV_CFLAGS
     -nostartfiles
     -static
     -fno-builtin
-    -O2
+    -O0
     -g
     -fPIC
     -fPIE

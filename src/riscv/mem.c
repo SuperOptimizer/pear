@@ -191,8 +191,8 @@ void rv_mem_write32(rv_t *rv, u32 addr, u32 val) {
 
 // Instruction fetch with translation
 u32 rv_fetch_instruction(rv_t *rv, u32 addr) {
-  // Check alignment
-  if (addr & 3) {
+  // Check alignment - RISC-V instructions must be 2-byte aligned (for compressed instructions)
+  if (addr & 1) {
     rv_raise_exception(rv, CAUSE_MISALIGNED_FETCH, addr);
     return 0;
   }
@@ -202,7 +202,19 @@ u32 rv_fetch_instruction(rv_t *rv, u32 addr) {
     rv_raise_exception(rv, CAUSE_FETCH_PAGE_FAULT, addr);
     return 0;
   }
-  return rv_phys_read32(rv, paddr);
+  
+  // Read first 16 bits to determine instruction type
+  u16 first_half = rv_phys_read16(rv, paddr);
+  
+  // Check if it's a compressed instruction (bottom 2 bits != 11)
+  if ((first_half & 0x3) != 0x3) {
+    // Compressed instruction - return as lower 16 bits of 32-bit word
+    return (u32)first_half;
+  } else {
+    // Full 32-bit instruction - read second half
+    u16 second_half = rv_phys_read16(rv, paddr + 2);
+    return ((u32)second_half << 16) | first_half;
+  }
 }
 
 // Double-precision memory operations

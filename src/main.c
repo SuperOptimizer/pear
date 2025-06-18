@@ -145,7 +145,7 @@ int main(int argc, char* argv[]) {
     
     char* path = "";
     if (argc == 1) {
-        path = "kernel.bin";
+        path = "../fibonacci.elf";
     } else {
         path = argv[1];
     }
@@ -181,7 +181,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Run emulator
-    run_emulator(&rv, 1000000);
+    run_emulator(&rv, 10000000);
 
     rv_free(&rv);
     return 0;

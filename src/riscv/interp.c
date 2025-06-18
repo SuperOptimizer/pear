@@ -360,7 +360,7 @@ instr_e rv_decode(u32 opcode) {
 #define _store32(addr, val) rv_mem_write32(rv, addr, val)
 #define _store_f64(addr, val) rv_mem_write_f64(rv, addr, val)
 #define _branch(cond) if (cond) rv->pc += imm_b - 4
-#define _c_branch(cond, off) if (cond) rv->pc += off - 2
+#define _c_branch(cond, off) if (cond) rv->pc += off; else rv->pc += 2
 #define _nan_box() _frd.raw |= 0xFFFFFFFF00000000ULL
 #define _c_rd get_c_rd_rs1(c_inst)
 #define _c_rs1_p get_c_rs1_prime(c_inst)
@@ -492,20 +492,32 @@ void rv_interpret(rv_t *rv, u32 opcode) {
     } break;
 
     case C_J: {
-      s32 c_offset = sign_extend(((c_inst >> 12) & 1) << 11 | ((c_inst >> 8) & 1) << 4 |
-                                 ((c_inst >> 9) & 0x3) << 8 | ((c_inst >> 6) & 1) << 7 |
-                                 ((c_inst >> 7) & 1) << 6 | ((c_inst >> 2) & 1) << 5 |
-                                 ((c_inst >> 11) & 1) << 1 | ((c_inst >> 3) & 0x7) << 2, 12);
-      rv->pc += c_offset - 2;
+      // C.J offset encoding: imm[11|4|9:8|10|6|7|3:1|5] in bits [12:2]
+      u32 imm = ((c_inst >> 12) & 1) << 11 |  // imm[11]
+                ((c_inst >> 11) & 1) << 4 |   // imm[4] 
+                ((c_inst >> 9) & 0x3) << 8 |  // imm[9:8]
+                ((c_inst >> 8) & 1) << 10 |   // imm[10]
+                ((c_inst >> 7) & 1) << 6 |    // imm[6]
+                ((c_inst >> 6) & 1) << 7 |    // imm[7]
+                ((c_inst >> 3) & 0x7) << 1 |  // imm[3:1]
+                ((c_inst >> 2) & 1) << 5;     // imm[5]
+      s32 c_offset = sign_extend(imm, 12);
+      rv->pc += c_offset;
     } break;
 
     case C_JAL: {
-      s32 c_offset = sign_extend(((c_inst >> 12) & 1) << 11 | ((c_inst >> 8) & 1) << 4 |
-                                 ((c_inst >> 9) & 0x3) << 8 | ((c_inst >> 6) & 1) << 7 |
-                                 ((c_inst >> 7) & 1) << 6 | ((c_inst >> 2) & 1) << 5 |
-                                 ((c_inst >> 11) & 1) << 1 | ((c_inst >> 3) & 0x7) << 2, 12);
+      // C.JAL offset encoding: imm[11|4|9:8|10|6|7|3:1|5] in bits [12:2]
+      u32 imm = ((c_inst >> 12) & 1) << 11 |  // imm[11]
+                ((c_inst >> 11) & 1) << 4 |   // imm[4] 
+                ((c_inst >> 9) & 0x3) << 8 |  // imm[9:8]
+                ((c_inst >> 8) & 1) << 10 |   // imm[10]
+                ((c_inst >> 7) & 1) << 6 |    // imm[6]
+                ((c_inst >> 6) & 1) << 7 |    // imm[7]
+                ((c_inst >> 3) & 0x7) << 1 |  // imm[3:1]
+                ((c_inst >> 2) & 1) << 5;     // imm[5]
+      s32 c_offset = sign_extend(imm, 12);
       rv->x[1] = rv->pc + 2;
-      rv->pc += c_offset - 2;
+      rv->pc += c_offset;
     } break;
 
     case C_JR: rv->pc = rv->x[_c_rd] - 2; break;

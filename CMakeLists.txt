@@ -2,7 +2,11 @@ cmake_minimum_required(VERSION 3.20)
 
 project(pear C)
 
-add_compile_options(-Wall -Wextra -Wno-gcc-compat)
+add_compile_options(-Wall
+        -Wextra
+        -Wno-gcc-compat
+-Wno-unused-variable
+-Wno-unused-parameter)
 
 add_executable(pear 
     src/main.c 
