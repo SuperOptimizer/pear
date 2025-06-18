@@ -181,7 +181,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Run emulator
-    run_emulator(&rv, 10000000);
+    run_emulator(&rv, 10000);
 
     rv_free(&rv);
     return 0;

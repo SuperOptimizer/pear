@@ -1,6 +1,7 @@
 #include "interp.h"
 #include "rv32gc.h"
 #include "../elf.h"
+#include "syscalls.h"
 #include <math.h>
 
 // Atomic reservation functions (simplified for emulator)
@@ -359,7 +360,7 @@ instr_e rv_decode(u32 opcode) {
 #define _store16(addr, val) rv_mem_write16(rv, addr, val)
 #define _store32(addr, val) rv_mem_write32(rv, addr, val)
 #define _store_f64(addr, val) rv_mem_write_f64(rv, addr, val)
-#define _branch(cond) if (cond) rv->pc += imm_b - 4
+#define _branch(cond) if (cond) rv->pc += imm_b; else rv->pc += 4
 #define _c_branch(cond, off) if (cond) rv->pc += off; else rv->pc += 2
 #define _nan_box() _frd.raw |= 0xFFFFFFFF00000000ULL
 #define _c_rd get_c_rd_rs1(c_inst)
@@ -413,11 +414,11 @@ void rv_interpret(rv_t *rv, u32 opcode) {
     case BLTU: _branch(_rs1 < _rs2); break;
     case BGEU: _branch(_rs1 >= _rs2); break;
 
-    case JAL: _rd = rv->pc + 4; rv->pc += imm_j - 4; break;
+    case JAL: _rd = rv->pc + 4; rv->pc += imm_j; break;
     case JALR: {
       u32 target = (_rs1 + imm_i) & ~1;
       _rd = rv->pc + 4;
-      rv->pc = target - 4;
+      rv->pc = target;
     } break;
 
     case LB: _rd = sign_extend(_load8(_rs1 + imm_i), 8); break;
@@ -430,7 +431,15 @@ void rv_interpret(rv_t *rv, u32 opcode) {
     case SH: _store16(_rs1 + imm_s, _rs2); break;
     case SW: _store32(_rs1 + imm_s, _rs2); break;
 
-    case ECALL: case EBREAK: case FENCE: case FENCE_I: break;
+    case ECALL: 
+      if (rv->csr.priv == PRIV_USER) {
+        rv_handle_user_syscall(rv);
+      } else {
+        // Machine mode ecall - unimplemented
+        printf("Machine mode ECALL not implemented\n");
+      }
+      break;
+    case EBREAK: case FENCE: case FENCE_I: break;
 
     case CSRRW: case CSRRS: case CSRRC: case CSRRWI: case CSRRSI: case CSRRCI: {
       u32 csr = imm_i & 0xFFF;
@@ -520,24 +529,28 @@ void rv_interpret(rv_t *rv, u32 opcode) {
       rv->pc += c_offset;
     } break;
 
-    case C_JR: rv->pc = rv->x[_c_rd] - 2; break;
+    case C_JR: rv->pc = rv->x[_c_rd]; break;
     case C_JALR: {
       u32 target = rv->x[_c_rd];
       rv->x[1] = rv->pc + 2;
-      rv->pc = target - 2;
+      rv->pc = target;
     } break;
 
     case C_BEQZ: {
-      s32 c_offset = sign_extend(((c_inst >> 12) & 1) << 8 | ((c_inst >> 6) & 0x3) << 3 |
-                                 ((c_inst >> 5) & 1) << 7 | ((c_inst >> 2) & 1) << 6 |
-                                 ((c_inst >> 10) & 0x3) << 1 | ((c_inst >> 3) & 0x3) << 5, 9);
+      s32 c_offset = sign_extend(((c_inst >> 12) & 1) << 8 |      // offset[8]
+                                 ((c_inst >> 10) & 0x3) << 3 |    // offset[4:3] 
+                                 ((c_inst >> 5) & 0x3) << 6 |     // offset[7:6]
+                                 ((c_inst >> 3) & 0x3) << 1 |     // offset[2:1]
+                                 ((c_inst >> 2) & 1) << 5, 9);    // offset[5]
       _c_branch(rv->x[_c_rs1_p] == 0, c_offset);
     } break;
 
     case C_BNEZ: {
-      s32 c_offset = sign_extend(((c_inst >> 12) & 1) << 8 | ((c_inst >> 6) & 0x3) << 3 |
-                                 ((c_inst >> 5) & 1) << 7 | ((c_inst >> 2) & 1) << 6 |
-                                 ((c_inst >> 10) & 0x3) << 1 | ((c_inst >> 3) & 0x3) << 5, 9);
+      s32 c_offset = sign_extend(((c_inst >> 12) & 1) << 8 |      // offset[8]
+                                 ((c_inst >> 10) & 0x3) << 3 |    // offset[4:3] 
+                                 ((c_inst >> 5) & 0x3) << 6 |     // offset[7:6]
+                                 ((c_inst >> 3) & 0x3) << 1 |     // offset[2:1]
+                                 ((c_inst >> 2) & 1) << 5, 9);    // offset[5]
       _c_branch(rv->x[_c_rs1_p] != 0, c_offset);
     } break;
 

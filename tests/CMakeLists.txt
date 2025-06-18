@@ -11,18 +11,14 @@ set(RISCV_CFLAGS
     -nostartfiles
     -static
     -fno-builtin
-    -O0
+    -O2
     -g
-    -fPIC
-    -fPIE
 )
 
 # RISC-V linker flags  
 set(RISCV_LDFLAGS
     -T${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
     -nostdlib
-    -static
-    -static-pie
 )
 
 # Function to create RISC-V test programs
@@ -50,9 +46,7 @@ endfunction()
 
 # Add test programs
 add_riscv_test(fibonacci fibonacci.c)
+add_riscv_test(simple_exit simple_exit.c)
 
-# Add a target to build all tests
-add_custom_target(riscv_tests DEPENDS fibonacci)
-
-# Add a target to run all tests
-add_custom_target(run_riscv_tests DEPENDS run_fibonacci)
+add_custom_target(riscv_tests DEPENDS fibonacci simple_exit)
+add_custom_target(run_riscv_tests DEPENDS run_fibonacci run_simple_exit)
