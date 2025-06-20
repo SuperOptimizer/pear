@@ -1,52 +1,31 @@
-# RISC-V Test Programs CMake Configuration
-
-# Set RISC-V compiler
 set(RISCV_CC riscv64-elf-gcc)
 
-# RISC-V compilation flags
-set(RISCV_CFLAGS
-    -march=rv32gc
-    -mabi=ilp32
-    -nostdlib
-    -nostartfiles
+set(RISCV_USER_CFLAGS
+    -march=rv64gc
+    -mabi=lp64
     -static
+    -nostdlib
     -fno-builtin
     -O2
     -g
 )
 
-# RISC-V linker flags  
-set(RISCV_LDFLAGS
-    -T${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
-    -nostdlib
-)
-
-# Function to create RISC-V test programs
-function(add_riscv_test name source)
+function(add_riscv_user_test name source)
     add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${name}.elf
-        COMMAND ${RISCV_CC} ${RISCV_CFLAGS} ${RISCV_LDFLAGS} 
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${name}
+        COMMAND ${RISCV_CC} ${RISCV_USER_CFLAGS}
+                -T${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
                 ${CMAKE_CURRENT_SOURCE_DIR}/${source}
-                -o ${CMAKE_CURRENT_BINARY_DIR}/${name}.elf
+                -o ${CMAKE_CURRENT_BINARY_DIR}/${name}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${source} ${CMAKE_CURRENT_SOURCE_DIR}/linker.ld
-        COMMENT "Building RISC-V test: ${name}"
+        COMMENT "Building usermode RISC-V test: ${name}"
         VERBATIM
     )
     
-    add_custom_target(${name} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${name}.elf)
-    
-    # Add test to run with emulator
-    add_custom_target(run_${name}
-        COMMAND ${CMAKE_BINARY_DIR}/pear ${CMAKE_CURRENT_BINARY_DIR}/${name}.elf
-        DEPENDS pear ${name}
-        COMMENT "Running RISC-V test: ${name}"
-        VERBATIM
-    )
+    add_custom_target(${name} ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/${name})
 endfunction()
 
-# Add test programs
-add_riscv_test(fibonacci fibonacci.c)
-add_riscv_test(simple_exit simple_exit.c)
-
-add_custom_target(riscv_tests DEPENDS fibonacci simple_exit)
-add_custom_target(run_riscv_tests DEPENDS run_fibonacci run_simple_exit)
+# Add usermode test programs
+add_riscv_user_test(hello_usermode hello_usermode.c)
+add_riscv_user_test(simple_exit simple_exit.c)
+add_riscv_user_test(fibonacci fibonacci.c)

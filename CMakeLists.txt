@@ -6,25 +6,26 @@ add_compile_options(-Wall
         -Wextra
         -Wno-gcc-compat
 -Wno-unused-variable
--Wno-unused-parameter)
+-Wno-unused-parameter
+-g3
+-fsanitize=address,undefined
+-Og)
+
+add_link_options(-fsanitize=address,undefined -fuse-ld=lld)
 
 add_executable(pear 
-    src/main.c 
-    src/common.h 
-    src/elf.c 
-    src/elf.h
-        src/riscv/syscalls.c
-        src/riscv/syscalls.h
-    src/riscv/rv32gc.c
-    src/riscv/rv32gc.h
-    src/riscv/mem.c
-    src/riscv/mem.h
-    src/riscv/csr.c
-    src/riscv/csr.h
-    src/riscv/interp.c
-    src/riscv/interp.h
-    src/riscv/disasm.c
-    src/riscv/disasm.h
+    src/main.c
+    src/common.h
+    src/rv64gc.c
+    src/rv64gc.h
+    src/rv64_opcodes.h
+    src/rv64_decode.c
+    src/rv64_disasm.c
+    src/rv64_interp.c
+    src/rv64_hw.c
+    src/rv64_hw.h
+    src/syscalls.c
+    src/syscalls.h
 )
 
 

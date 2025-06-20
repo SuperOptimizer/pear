@@ -1,188 +1,118 @@
 #include "common.h"
-#include "riscv/rv32gc.h"
-#include "riscv/syscalls.h"
-#include "elf.h"
+#include "rv64gc.h"
+#include "syscalls.h"
+#include <string.h>
 
-
-int is_elf_file(const char* filename) {
-    FILE* f = fopen(filename, "rb");
-    if (!f) return 0;
-    
-    u8 header[64];  // Read enough for full ELF header
-    size_t read_size = fread(header, 1, sizeof(header), f);
-    fclose(f);
-    
-    if (read_size < sizeof(header)) return 0;
-    
-    return elf_is_valid(header, read_size);
+static void print_usage(const char* prog) {
+    printf("Usage:\n");
+    printf("  %s [options] <binary>\n", prog);
+    printf("\nOptions:\n");
+    printf("  --usermode    Run in usermode emulation (Linux ELF)\n");
+    printf("  --cycles N    Maximum cycles to execute\n");
+    printf("\nExamples:\n");
+    printf("  %s --usermode ./hello\n", prog);
+    printf("  %s ./tests/fibonacci.elf\n", prog);
 }
-
-int load_binary(const char* filename, rv_t* rv, u32 load_addr) {
-    FILE* f = fopen(filename, "rb");
-    if (!f) return -1;
-
-    fseek(f, 0, SEEK_END);
-    size_t size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    if (load_addr + size >= MEMORY_SIZE) {
-        fclose(f);
-        return -1;
-    }
-
-    fread(rv->ram + load_addr, 1, size, f);
-    fclose(f);
-
-    printf("Loaded %zu bytes at 0x%08x\n", size, load_addr);
-    return 0;
-}
-
-// Initialize emulator for kernel boot
-void setup_kernel_boot(rv_t* rv) {
-    // Initialize all state
-    memset(rv, 0, sizeof(rv_t));
-    rv_csr_init(rv);
-
-    // Set up boot state
-    rv->pc = 0x80200000;              // Kernel entry point
-    rv->a0 = 0;                       // Hart ID
-    rv->a1 = 0x82000000;             // Device tree address
-    rv->sp = 0x80000000;              // Initial stack pointer
-
-    // Start in machine mode
-    rv->csr.priv = PRIV_MACHINE;
-
-    // Set up basic machine state
-    rv->csr.mstatus = 0;
-    rv->csr.mtvec = 0x80000000;       // Machine trap vector
-    rv->csr.stvec = 0x80200000;       // Supervisor trap vector
-
-    printf("Emulator initialized for kernel boot\n");
-    printf("PC: 0x%08x, Hart ID: %u, DTB: 0x%08x\n", rv->pc, rv->a0, rv->a1);
-}
-
-// Exception handler for debugging
-void handle_exception(rv_t* rv, u32 cause, u32 tval) {
-    printf("EXCEPTION: ");
-    switch (cause) {
-        case CAUSE_MISALIGNED_FETCH:    printf("Instruction address misaligned"); break;
-        case CAUSE_FETCH_ACCESS:        printf("Instruction access fault"); break;
-        case CAUSE_ILLEGAL_INSTRUCTION: printf("Illegal instruction"); break;
-        case CAUSE_BREAKPOINT:          printf("Breakpoint"); break;
-        case CAUSE_MISALIGNED_LOAD:     printf("Load address misaligned"); break;
-        case CAUSE_LOAD_ACCESS:         printf("Load access fault"); break;
-        case CAUSE_MISALIGNED_STORE:    printf("Store address misaligned"); break;
-        case CAUSE_STORE_ACCESS:        printf("Store access fault"); break;
-        case CAUSE_USER_ECALL:          printf("User ecall"); break;
-        case CAUSE_SUPERVISOR_ECALL:    printf("Supervisor ecall"); break;
-        case CAUSE_MACHINE_ECALL:       printf("Machine ecall"); break;
-        case CAUSE_FETCH_PAGE_FAULT:    printf("Instruction page fault"); break;
-        case CAUSE_LOAD_PAGE_FAULT:     printf("Load page fault"); break;
-        case CAUSE_STORE_PAGE_FAULT:    printf("Store page fault"); break;
-        default: printf("Unknown cause %u", cause); break;
-    }
-    printf(" at PC=0x%08x, tval=0x%08x\n", rv->pc, tval);
-
-    if (cause == CAUSE_SUPERVISOR_ECALL) {
-        // Handle supervisor system calls
-        rv_syscall_entry(rv, cause);
-    } else if (cause == CAUSE_USER_ECALL) {
-        // Handle user system calls
-        rv_handle_user_syscall(rv);
-    }
-}
-
-// Run emulator with exception handling
-int run_emulator(rv_t* rv, u32 max_instructions) {
-    u32 instruction_count = 0;
-    
-    printf("Starting execution: PC=0x%08x, priv=%u\n", rv->pc, rv->csr.priv);
-
-    while (instruction_count < max_instructions) {
-        // Check for exceptions before execution
-        if (rv->csr.mcause != 0) {
-            handle_exception(rv, rv->csr.mcause, rv->csr.mtval);
-            rv->csr.mcause = 0; // Clear exception
-        }
-
-        // Fetch and disassemble instruction before execution
-        u32 opcode = rv_fetch_instruction(rv, rv->pc);
-        
-        // Show disassembly for first 20 instructions
-        if (instruction_count < 20) {
-            rv_print_instruction(rv, opcode, rv->pc);
-        }
-
-        // Execute one step
-        int result = rv_step(rv);
-        if (result != 0) {
-            printf("Execution stopped with result %d\n", result);
-            break;
-        }
-
-        instruction_count++;
-
-        // Debug output for first few instructions and then every 10000
-        if (instruction_count <= 10 || instruction_count % 10000 == 0) {
-            printf("PC: 0x%08x, instructions: %u, priv: %u\n",
-                   rv->pc, instruction_count, rv->csr.priv);
-        }
-
-        // Stop if we hit invalid PC
-        if (rv->pc == 0 || rv->pc >= MEMORY_SIZE) {
-            printf("Invalid PC: 0x%08x, stopping\n", rv->pc);
-            break;
-        }
-    }
-
-    printf("Executed %u instructions\n", instruction_count);
-    return 0;
-}
-
 
 int main(int argc, char* argv[]) {
-    printf("RV32GC Full System Emulator\n");
+    u64 max_cycles = 10000;
+    const char *binary_path = NULL;
+    const char *dtb_path = "linux/rv.dtb";
+    bool usermode = false;
     
-    char* path = "";
-    if (argc == 1) {
-        path = "../fibonacci.elf";
-    } else {
-        path = argv[1];
+    // Parse arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--usermode") == 0) {
+            usermode = true;
+        } else if (strcmp(argv[i], "--cycles") == 0 && i + 1 < argc) {
+            max_cycles = (u64)atol(argv[++i]);
+        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            print_usage(argv[0]);
+            return 0;
+        } else if (argv[i][0] != '-') {
+            binary_path = argv[i];
+        }
     }
-
-    rv_t rv;
-    rv_init(&rv);
-
-    // Check if file is ELF or raw binary
-    if (is_elf_file(path)) {
-        printf("Detected ELF file: %s\n", path);
-        
-        // Load user ELF
-        if (rv_load_user_elf(&rv, path) != 0) {
-            printf("Failed to load ELF: %s\n", path);
-            rv_free(&rv);
+    
+    if (!binary_path) {
+        print_usage(argv[0]);
+        return 1;
+    }
+    
+    printf("Pear RISC-V Emulator\n");
+    printf("Mode: %s\n", usermode ? "Usermode (Linux ELF)" : "System");
+    printf("Loading binary: %s\n", binary_path);
+    
+    rv_t *cpu = malloc(sizeof(rv_t));
+    if (!cpu) {
+        printf("Failed to allocate CPU structure\n");
+        return 1;
+    }
+    
+    rv_machine_init(cpu);
+    if (!cpu->ram) {
+        printf("Failed to allocate memory\n");
+        free(cpu);
+        return 1;
+    }
+    
+    if (usermode) {
+        // Usermode emulation
+        syscall_ctx_t *ctx = malloc(sizeof(syscall_ctx_t));
+        if (!ctx) {
+            printf("Failed to allocate syscall context\n");
+            rv_free(cpu);
+            free(cpu);
             return 1;
         }
         
-        printf("Running user mode program...\n");
-    } else {
-        printf("Detected raw binary: %s\n", path);
+        syscall_init(ctx, 0x10000);  // Initial brk
+        cpu->syscall_ctx = ctx;
+        cpu->priv = RV_PRIV_USER;
         
-        // Load kernel binary
-        if (load_binary(path, &rv, 0x80200000) != 0) {
-            printf("Failed to load kernel: %s\n", path);
-            rv_free(&rv);
+        // Load ELF file
+        if (load_elf_usermode(cpu, ctx, binary_path) != OK) {
+            printf("Failed to load ELF file\n");
+            free(ctx);
+            rv_free(cpu);
+            free(cpu);
             return 1;
         }
-
-        // Set up for kernel boot
-        setup_kernel_boot(&rv);
-        printf("Running kernel...\n");
+        
+        printf("Entry point: 0x%016llx\n", (unsigned long long)cpu->pc);
+        printf("Initial SP: 0x%016llx\n", (unsigned long long)cpu->x[2]);
+    } else {
+        // System mode - original behavior
+        rv_machine_load_file(binary_path, cpu->ram, MACH_RAM_SIZE);
+        
+        // Only load DTB if not running a test program
+        if (strstr(binary_path, "tests/") == NULL) {
+            FILE *dtb_file = fopen(dtb_path, "rb");
+            if (dtb_file) {
+                fclose(dtb_file);
+                rv_machine_load_file(dtb_path, cpu->ram + MACH_DTB_OFFSET, MACH_RAM_SIZE - MACH_DTB_OFFSET);
+            } else {
+                printf("Warning: DTB file %s not found\n", dtb_path);
+            }
+        }
+        
+        // Set up initial register state for Linux boot
+        cpu->x[10] = 0; // hartid (hardware thread ID)
+        cpu->x[11] = MACH_RAM_BASE + MACH_DTB_OFFSET; // DTB pointer
+        
+        printf("Starting emulation at PC: 0x%016llx\n", (unsigned long long)cpu->pc);
+        printf("Hart ID: %llu, DTB: 0x%016llx\n", (unsigned long long)cpu->x[10], (unsigned long long)cpu->x[11]);
     }
-
-    // Run emulator
-    run_emulator(&rv, 10000);
-
-    rv_free(&rv);
+    
+    u64 result = rv_machine_run(cpu, max_cycles);
+    
+    printf("Emulation finished with result: 0x%016llx\n", (unsigned long long)result);
+    
+    if (cpu->syscall_ctx) {
+        free(cpu->syscall_ctx);
+    }
+    
+    rv_free(cpu);
+    free(cpu);
     return 0;
 }

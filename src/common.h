@@ -24,3 +24,9 @@ typedef double    f64;
 #define overload __attribute__((overloadable))
 #define purefunc __attribute__((pure))
 #define constfunc __attribute__((const))
+
+typedef enum err_e {
+  OK = 0,
+  ERROR = -1,
+} err_e;
+

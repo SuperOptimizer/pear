@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../common.h"
-#include "rv32gc.h"
+#include "common.h"
+#include "rv64gc.h"
 
-// Linux system call numbers for RISC-V
+// Linux RISC-V syscall numbers
 #define SYS_getcwd          17
 #define SYS_dup             23
 #define SYS_dup3            24
@@ -12,7 +12,6 @@
 #define SYS_mkdirat         34
 #define SYS_unlinkat        35
 #define SYS_linkat          37
-#define SYS_renameat        38
 #define SYS_umount2         39
 #define SYS_mount           40
 #define SYS_pivot_root      41
@@ -218,6 +217,7 @@
 #define SYS_perf_event_open 241
 #define SYS_accept4         242
 #define SYS_recvmmsg        243
+#define SYS_arch_specific_syscall 244
 #define SYS_wait4           260
 #define SYS_prlimit64       261
 #define SYS_fanotify_init   262
@@ -246,46 +246,28 @@
 #define SYS_copy_file_range 285
 #define SYS_preadv2         286
 #define SYS_pwritev2        287
+#define SYS_pkey_mprotect   288
+#define SYS_pkey_alloc      289
+#define SYS_pkey_free       290
+#define SYS_statx           291
+#define SYS_io_pgetevents   292
+#define SYS_rseq            293
+#define SYS_kexec_file_load 294
 
-// Error codes
-#define EPERM           1   // Operation not permitted
-#define ENOENT          2   // No such file or directory
-#define ESRCH           3   // No such process
-#define EINTR           4   // Interrupted system call
-#define EIO             5   // I/O error
-#define ENXIO           6   // No such device or address
-#define E2BIG           7   // Argument list too long
-#define ENOEXEC         8   // Exec format error
-#define EBADF           9   // Bad file number
-#define ECHILD          10  // No child processes
-#define EAGAIN          11  // Try again
-#define ENOMEM          12  // Out of memory
-#define EACCES          13  // Permission denied
-#define EFAULT          14  // Bad address
-#define ENOTBLK         15  // Block device required
-#define EBUSY           16  // Device or resource busy
-#define EEXIST          17  // File exists
-#define EXDEV           18  // Cross-device link
-#define ENODEV          19  // No such device
-#define ENOTDIR         20  // Not a directory
-#define EISDIR          21  // Is a directory
-#define EINVAL          22  // Invalid argument
-#define ENFILE          23  // File table overflow
-#define EMFILE          24  // Too many open files
-#define ENOTTY          25  // Not a typewriter
-#define ETXTBSY         26  // Text file busy
-#define EFBIG           27  // File too large
-#define ENOSPC          28  // No space left on device
-#define ESPIPE          29  // Illegal seek
-#define EROFS           30  // Read-only file system
-#define EMLINK          31  // Too many links
-#define EPIPE           32  // Broken pipe
-#define EDOM            33  // Math argument out of domain of func
-#define ERANGE          34  // Math result not representable
-#define ENOSYS          38  // Function not implemented
+// Syscall emulation context
+typedef struct {
+    bool usermode;      // Whether we're in usermode emulation
+    u64 brk_addr;       // Current program break
+    u64 mmap_base;      // Base address for mmap allocations
+    int next_fd;        // Next available file descriptor
+    // Add more fields as needed for file descriptors, etc.
+} syscall_ctx_t;
 
-// Forward declaration
-typedef struct rv_t rv_t;
+// Initialize syscall emulation
+void syscall_init(syscall_ctx_t* ctx, u64 brk_start);
 
-// System call handler
-void rv_handle_user_syscall(rv_t* rv);
+// Handle a Linux syscall
+s64 handle_linux_syscall(rv_t* rv, syscall_ctx_t* ctx);
+
+// ELF loading for usermode
+err_e load_elf_usermode(rv_t* rv, syscall_ctx_t* ctx, const char* path);
